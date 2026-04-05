@@ -6,8 +6,8 @@
 <title>Game of Bob</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #1a1a2e; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-  canvas { border: 2px solid #444; border-radius: 8px; cursor: grab; }
+  body { background: #1a1a2e; overflow: hidden; }
+  canvas { display: block; cursor: grab; }
   canvas:active { cursor: grabbing; }
 </style>
 </head>
@@ -16,8 +16,17 @@
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-canvas.width = 800;
-canvas.height = 600;
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  createSpikes();
+  // Keep Bob inside bounds after resize
+  bob.x = Math.max(50, Math.min(canvas.width - 50, bob.x));
+  bob.y = Math.max(80, Math.min(canvas.height - 80, bob.y));
+}
+
+window.addEventListener('resize', resizeCanvas);
 
 // Audio context for squeak
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -70,8 +79,8 @@ function playRespawn() {
 
 // Bob the rag doll
 const bob = {
-  x: canvas.width / 2,
-  y: canvas.height / 2,
+  x: 400,
+  y: 300,
   vx: 0,
   vy: 0,
   scale: 1,
@@ -264,23 +273,21 @@ function createSpikes() {
   spikes.length = 0;
   // Bottom spikes
   for (let x = 40; x < canvas.width - 20; x += 60) {
-    spikes.push({ x, y: canvas.height - 20, w: 20, h: 25, dir: 'up' });
+    spikes.push({ x, y: canvas.height, w: 20, h: 25, dir: 'up' });
   }
   // Top spikes
   for (let x = 70; x < canvas.width - 20; x += 60) {
-    spikes.push({ x, y: 20, w: 20, h: 25, dir: 'down' });
+    spikes.push({ x, y: 0, w: 20, h: 25, dir: 'down' });
   }
   // Left spikes
   for (let y = 80; y < canvas.height - 60; y += 60) {
-    spikes.push({ x: 20, y, w: 25, h: 20, dir: 'right' });
+    spikes.push({ x: 0, y, w: 25, h: 20, dir: 'right' });
   }
   // Right spikes
   for (let y = 110; y < canvas.height - 60; y += 60) {
-    spikes.push({ x: canvas.width - 20, y, w: 25, h: 20, dir: 'left' });
+    spikes.push({ x: canvas.width, y, w: 25, h: 20, dir: 'left' });
   }
 }
-createSpikes();
-
 function drawSpikes() {
   ctx.fillStyle = '#c33';
   ctx.strokeStyle = '#900';
@@ -515,12 +522,12 @@ function drawBackground() {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
   }
 
-  // Danger border
+  // Danger border (flush to edges)
   ctx.fillStyle = '#2a1a1a';
-  ctx.fillRect(0, 0, canvas.width, 18);
-  ctx.fillRect(0, canvas.height - 18, canvas.width, 18);
-  ctx.fillRect(0, 0, 18, canvas.height);
-  ctx.fillRect(canvas.width - 18, 0, 18, canvas.height);
+  ctx.fillRect(0, 0, canvas.width, 8);
+  ctx.fillRect(0, canvas.height - 8, canvas.width, 8);
+  ctx.fillRect(0, 0, 8, canvas.height);
+  ctx.fillRect(canvas.width - 8, 0, 8, canvas.height);
 }
 
 // HUD
@@ -528,15 +535,15 @@ function drawHUD() {
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
   ctx.font = '14px monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('Drag Bob around! Click his nose!', 25, canvas.height - 30);
+  ctx.fillText('Drag Bob around! Click his nose!', 35, canvas.height - 40);
   ctx.textAlign = 'right';
-  ctx.fillText('Avoid the spikes!', canvas.width - 25, canvas.height - 30);
+  ctx.fillText('Avoid the spikes!', canvas.width - 35, canvas.height - 40);
 
   // Title
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(255,255,255,0.15)';
   ctx.font = 'bold 32px monospace';
-  ctx.fillText('GAME OF BOB', canvas.width / 2, 50);
+  ctx.fillText('GAME OF BOB', canvas.width / 2, 65);
 
   // Squeak indicator
   if (squeakTimer > 0) {
@@ -589,6 +596,9 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
+resizeCanvas();
+bob.x = canvas.width / 2;
+bob.y = canvas.height / 2;
 loop();
 </script>
 </body>
