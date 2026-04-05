@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "game-of-bob",
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": ["serve.js"],
+      "port": 3457,
+      "autoPort": true
+    }
+  ]
+}
