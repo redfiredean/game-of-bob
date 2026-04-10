@@ -271,22 +271,44 @@ function getDiff(worldX) {
 function generateObstacles() {
   while (nextObstacleWorldX < cameraX + canvas.width * 1.6) {
     const diff = getDiff(nextObstacleWorldX);
-    const gapSize = Math.max(165, 420 - diff * 255);
-    const margin = gapSize / 2 + 35;
-    const gapCenter = margin + Math.random() * (canvas.height - margin * 2);
+    const spacing = Math.max(220, 560 - diff * 340);
     const oscAmp = diff * canvas.height * 0.18;
     const oscSpeed = 0.007 + diff * 0.018;
-    const spacing = Math.max(220, 560 - diff * 340);
+    const phase = Math.random() * Math.PI * 2;
 
-    obstacles.push({
-      worldX: nextObstacleWorldX,
-      width: 32,
-      gapCenter,
-      gapHalfSize: gapSize / 2,
-      oscAmp,
-      oscSpeed,
-      phase: Math.random() * Math.PI * 2,
-    });
+    // Unlock obstacle types progressively with distance
+    const rand = Math.random();
+    let type = 'pillar';
+    if (diff > 0.15 && rand < 0.28) type = 'drop';
+    else if (diff > 0.15 && rand < 0.5) type = 'rise';
+    else if (diff > 0.35 && rand < 0.65) type = 'hbar';
+
+    let obs = { worldX: nextObstacleWorldX, type, oscAmp, oscSpeed, phase };
+
+    if (type === 'pillar') {
+      const gapSize = Math.max(165, 420 - diff * 255);
+      const margin = gapSize / 2 + 35;
+      obs.gapCenter = margin + Math.random() * (canvas.height - margin * 2);
+      obs.gapHalfSize = gapSize / 2;
+      obs.width = 32;
+    } else if (type === 'drop') {
+      obs.depth = 90 + diff * 130 + Math.random() * 70;
+      obs.width = 52;
+      obs.oscAmp = diff * canvas.height * 0.08; // gentler osc for depth changes
+    } else if (type === 'rise') {
+      obs.depth = 90 + diff * 130 + Math.random() * 70;
+      obs.width = 52;
+      obs.oscAmp = diff * canvas.height * 0.08;
+    } else if (type === 'hbar') {
+      const minY = canvas.height * 0.2, maxY = canvas.height * 0.8;
+      obs.barY = minY + Math.random() * (maxY - minY);
+      obs.barH = 18 + diff * 22;
+      obs.barW = 90 + Math.random() * 80;
+      obs.oscAmp = diff * canvas.height * 0.22;
+      obs.oscSpeed = oscSpeed * 1.3;
+    }
+
+    obstacles.push(obs);
     nextObstacleWorldX += spacing;
   }
   while (obstacles.length && obstacles[0].worldX < cameraX - 300)
@@ -295,6 +317,14 @@ function generateObstacles() {
 
 function getGapCenter(obs) {
   return obs.gapCenter + obs.oscAmp * Math.sin(gameTime * obs.oscSpeed + obs.phase);
+}
+
+function getLiveDepth(obs) {
+  return obs.depth + obs.oscAmp * Math.abs(Math.sin(gameTime * obs.oscSpeed + obs.phase));
+}
+
+function getLiveBarY(obs) {
+  return obs.barY + obs.oscAmp * Math.sin(gameTime * obs.oscSpeed + obs.phase);
 }
 
 function drawPillarSpikes(cx, y, width, dir) {
@@ -314,21 +344,33 @@ function drawPillarSpikes(cx, y, width, dir) {
 function drawObstacles() {
   for (const obs of obstacles) {
     const sx = obs.worldX - cameraX;
-    if (sx < -60 || sx > canvas.width + 60) continue;
-    const gc = getGapCenter(obs);
-    const topH = gc - obs.gapHalfSize;
-    const bottomY = gc + obs.gapHalfSize;
-    const hw = obs.width / 2;
+    if (sx < -100 || sx > canvas.width + 100) continue;
     const diff = getDiff(obs.worldX);
     const shade = Math.round(30 + diff * 30);
     ctx.fillStyle = `rgb(${shade + 10},${shade / 2},${shade / 2})`;
-    if (topH > 0) {
-      ctx.fillRect(sx - hw, 0, obs.width, topH);
-      drawPillarSpikes(sx, topH, obs.width, 'down');
-    }
-    if (bottomY < canvas.height) {
-      ctx.fillRect(sx - hw, bottomY, obs.width, canvas.height - bottomY);
-      drawPillarSpikes(sx, bottomY, obs.width, 'up');
+
+    if (obs.type === 'pillar') {
+      const gc = getGapCenter(obs);
+      const topH = gc - obs.gapHalfSize, bottomY = gc + obs.gapHalfSize;
+      const hw = obs.width / 2;
+      if (topH > 0) { ctx.fillRect(sx - hw, 0, obs.width, topH); drawPillarSpikes(sx, topH, obs.width, 'down'); }
+      if (bottomY < canvas.height) { ctx.fillRect(sx - hw, bottomY, obs.width, canvas.height - bottomY); drawPillarSpikes(sx, bottomY, obs.width, 'up'); }
+
+    } else if (obs.type === 'drop') {
+      const d = getLiveDepth(obs), hw = obs.width / 2;
+      ctx.fillRect(sx - hw, 0, obs.width, d);
+      drawPillarSpikes(sx, d, obs.width, 'down');
+
+    } else if (obs.type === 'rise') {
+      const d = getLiveDepth(obs), hw = obs.width / 2;
+      ctx.fillRect(sx - hw, canvas.height - d, obs.width, d);
+      drawPillarSpikes(sx, canvas.height - d, obs.width, 'up');
+
+    } else if (obs.type === 'hbar') {
+      const by = getLiveBarY(obs), hw = obs.barW / 2, hh = obs.barH / 2;
+      ctx.fillRect(sx - hw, by - hh, obs.barW, obs.barH);
+      drawPillarSpikes(sx, by - hh, obs.barW, 'up');
+      drawPillarSpikes(sx, by + hh, obs.barW, 'down');
     }
   }
 }
@@ -337,7 +379,7 @@ function checkObstacleCollision() {
   if (!bob.alive) return;
   const p = getBobParts();
   const sx = getScreenX();
-  const testPoints = [
+  const pts = [
     { x: p.head.x, y: p.head.y - p.head.r },
     { x: p.head.x, y: p.head.y + p.head.r },
     { x: p.leftFoot.x, y: p.leftFoot.y + p.leftFoot.r },
@@ -346,15 +388,46 @@ function checkObstacleCollision() {
     { x: p.rightHand.x + p.rightHand.r, y: p.rightHand.y },
     { x: sx, y: bob.y },
   ];
+  const reach = 20; // spike reach beyond block edge
+
   for (const obs of obstacles) {
     const obsSX = obs.worldX - cameraX;
-    const hw = obs.width / 2 + 18;
-    const gc = getGapCenter(obs);
-    const topKill = gc - obs.gapHalfSize + 18;
-    const bottomKill = gc + obs.gapHalfSize - 18;
-    for (const pt of testPoints) {
-      if (Math.abs(pt.x - obsSX) > hw) continue;
-      if (pt.y < topKill || pt.y > bottomKill) { killBob(); return; }
+
+    if (obs.type === 'pillar') {
+      const hw = obs.width / 2 + reach;
+      const gc = getGapCenter(obs);
+      const topKill = gc - obs.gapHalfSize + reach;
+      const bottomKill = gc + obs.gapHalfSize - reach;
+      for (const pt of pts) {
+        if (Math.abs(pt.x - obsSX) > hw) continue;
+        if (pt.y < topKill || pt.y > bottomKill) { killBob(); return; }
+      }
+
+    } else if (obs.type === 'drop') {
+      const hw = obs.width / 2 + reach;
+      const killY = getLiveDepth(obs) + reach;
+      for (const pt of pts) {
+        if (Math.abs(pt.x - obsSX) > hw) continue;
+        if (pt.y < killY) { killBob(); return; }
+      }
+
+    } else if (obs.type === 'rise') {
+      const hw = obs.width / 2 + reach;
+      const killY = canvas.height - getLiveDepth(obs) - reach;
+      for (const pt of pts) {
+        if (Math.abs(pt.x - obsSX) > hw) continue;
+        if (pt.y > killY) { killBob(); return; }
+      }
+
+    } else if (obs.type === 'hbar') {
+      const hw = obs.barW / 2 + reach;
+      const by = getLiveBarY(obs);
+      const topKill = by - obs.barH / 2 - reach;
+      const bottomKill = by + obs.barH / 2 + reach;
+      for (const pt of pts) {
+        if (Math.abs(pt.x - obsSX) > hw) continue;
+        if (pt.y > topKill && pt.y < bottomKill) { killBob(); return; }
+      }
     }
   }
 }
