@@ -411,9 +411,10 @@ function drawParticles() {
 
 // Score / lives
 let gameTime = 0;
-let bestMaxWorldX = 0;
+let bestMaxWorldX = parseFloat(localStorage.getItem('bobBestWorldX') || '0');
 let lives = 3;
 let gameOver = false;
+let newRecord = false;
 
 function getDistanceM() { return Math.floor(Math.max(0, bob.worldX) / 20); }
 function getBestDistanceM() { return Math.floor(bestMaxWorldX / 20); }
@@ -421,7 +422,11 @@ function getBestDistanceM() { return Math.floor(bestMaxWorldX / 20); }
 // Kill / respawn
 function killBob() {
   bob.alive = false; dragging = false;
-  if (bob.worldX > bestMaxWorldX) bestMaxWorldX = bob.worldX;
+  if (bob.worldX > bestMaxWorldX) {
+    bestMaxWorldX = bob.worldX;
+    newRecord = true;
+    localStorage.setItem('bobBestWorldX', bestMaxWorldX);
+  }
   lives--;
   bob.respawnTimer = lives <= 0 ? 999999 : 90;
   if (lives <= 0) gameOver = true;
@@ -443,9 +448,9 @@ function respawnBob() {
 }
 
 function restartGame() {
-  lives = 3; gameTime = 0; gameOver = false;
+  lives = 3; gameTime = 0; gameOver = false; newRecord = false;
   cameraX = 0; nextObstacleWorldX = 700;
-  obstacles.length = 0; bestMaxWorldX = 0;
+  obstacles.length = 0;
   bob.worldX = canvas.width * 0.35;
   bob.y = canvas.height / 2;
   bob.vx = 0; bob.vy = 0; bob.alive = true; bob.opacity = 1; bob.scale = 1;
@@ -591,15 +596,46 @@ function drawHUD() {
   }
 
   if (gameOver) {
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+
+    // Dim backdrop
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Card background
+    const cardW = 380, cardH = newRecord ? 230 : 200;
+    ctx.fillStyle = '#0d1b2a';
+    roundRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 16);
+    ctx.fill();
+    ctx.strokeStyle = newRecord ? '#ffd700' : '#3a3a5a';
+    ctx.lineWidth = newRecord ? 2.5 : 1.5;
+    roundRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 16);
+    ctx.stroke();
+
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#ff5555'; ctx.font = 'bold 52px monospace';
-    ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 40);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '22px monospace';
-    ctx.fillText(`best run: ${best}m`, canvas.width / 2, canvas.height / 2 + 10);
-    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '16px monospace';
-    ctx.fillText('click to play again', canvas.width / 2, canvas.height / 2 + 48);
+
+    // Title
+    ctx.fillStyle = '#ff5555'; ctx.font = 'bold 42px monospace';
+    ctx.fillText('GAME OVER', cx, cy - cardH / 2 + 52);
+
+    // New record flash
+    if (newRecord) {
+      ctx.fillStyle = '#ffd700'; ctx.font = 'bold 16px monospace';
+      ctx.fillText('★  NEW RECORD  ★', cx, cy - cardH / 2 + 82);
+    }
+
+    // Best distance
+    const yOff = newRecord ? 28 : 10;
+    ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = 'bold 28px monospace';
+    ctx.fillText(`${best}m`, cx, cy - cardH / 2 + 118 + yOff);
+
+    // Saved badge
+    ctx.fillStyle = 'rgba(80,200,120,0.85)'; ctx.font = '13px monospace';
+    ctx.fillText('✓  saved to this device', cx, cy - cardH / 2 + 145 + yOff);
+
+    // Play again prompt
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.font = '15px monospace';
+    ctx.fillText('click anywhere to play again', cx, cy - cardH / 2 + 185 + yOff);
   }
 }
 
