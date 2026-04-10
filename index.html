@@ -555,6 +555,10 @@ let lives = 3;
 let gameOver = false;
 let newRecord = false;
 
+// Title screen
+let titleScreen = true;
+let titleTime = 0;
+
 function getDistanceM() { return Math.floor(Math.max(0, bob.worldX) / 20); }
 function getBestDistanceM() { return Math.floor(bestMaxWorldX / 20); }
 
@@ -648,6 +652,11 @@ function distToSegment(px, py, x1, y1, x2, y2) {
 function onDown(e) {
   e.preventDefault();
   if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (titleScreen) {
+    titleScreen = false;
+    restartGame();
+    return;
+  }
   if (gameOver) { restartGame(); return; }
   const { x, y } = getPos(e);
   if (hitTestNose(x, y)) { playSqueak(); squeakTimer = 15; }
@@ -791,6 +800,83 @@ function drawHUD() {
   }
 }
 
+function drawTitleScreen() {
+  // Background
+  ctx.fillStyle = '#16213e';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const gs = 80;
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 1;
+  for (let x = 0; x < canvas.width + gs; x += gs) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y < canvas.height; y += gs) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+
+  // Title "GAME OF"
+  ctx.textAlign = 'center';
+  ctx.shadowBlur = 25; ctx.shadowColor = '#4a7ab5';
+  ctx.fillStyle = 'rgba(200,220,255,0.95)';
+  ctx.font = `bold ${Math.min(64, canvas.width * 0.09)}px monospace`;
+  ctx.fillText('GAME OF', cx, cy - canvas.height * 0.28);
+  ctx.shadowBlur = 0;
+
+  // Title "BOB"
+  const bobPulse = 1 + 0.04 * Math.sin(titleTime * 0.04);
+  ctx.save();
+  ctx.translate(cx, cy - canvas.height * 0.16);
+  ctx.scale(bobPulse, bobPulse);
+  ctx.shadowBlur = 40; ctx.shadowColor = '#ffd700';
+  ctx.fillStyle = '#ffd700';
+  ctx.font = `bold ${Math.min(100, canvas.width * 0.14)}px monospace`;
+  ctx.fillText('BOB', 0, 0);
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  // Animated Bob character — positioned for title
+  bob.wobble += 0.04;
+  bob.wobbleSpeed = 0.04;
+  bob.worldX = cx;
+  bob.y = cy + canvas.height * 0.06;
+  bob.scale = Math.min(1.3, canvas.width / 600);
+  bob.alive = true;
+  cameraX = 0;
+  drawBob();
+
+  // Subtitle
+  ctx.fillStyle = 'rgba(160,190,255,0.65)';
+  ctx.font = `${Math.min(15, canvas.width * 0.022)}px monospace`;
+  ctx.fillText('drag Bob through spike-filled corridors', cx, cy + canvas.height * 0.26);
+  ctx.fillText('survive as long as you can!', cx, cy + canvas.height * 0.32);
+
+  // Best score
+  if (bestMaxWorldX > 0) {
+    ctx.fillStyle = 'rgba(255,215,0,0.85)';
+    ctx.font = `bold ${Math.min(17, canvas.width * 0.025)}px monospace`;
+    ctx.fillText(`best: ${getBestDistanceM()}m`, cx, cy + canvas.height * 0.39);
+  }
+
+  // Blinking "tap to play"
+  if (Math.sin(titleTime * 0.06) > -0.3) {
+    ctx.fillStyle = `rgba(255,255,255,${0.7 + 0.3 * Math.sin(titleTime * 0.06)})`;
+    ctx.font = `bold ${Math.min(22, canvas.width * 0.032)}px monospace`;
+    ctx.fillText('tap to play', cx, cy + canvas.height * 0.46);
+  }
+
+  // Subtle red danger glow at edges
+  const edgeAlpha = 0.08 + 0.04 * Math.sin(titleTime * 0.03);
+  const gL = ctx.createLinearGradient(0, 0, 60, 0);
+  gL.addColorStop(0, `rgba(200,0,0,${edgeAlpha})`); gL.addColorStop(1, 'rgba(200,0,0,0)');
+  ctx.fillStyle = gL; ctx.fillRect(0, 0, 60, canvas.height);
+  const gR = ctx.createLinearGradient(canvas.width, 0, canvas.width - 60, 0);
+  gR.addColorStop(0, `rgba(200,0,0,${edgeAlpha})`); gR.addColorStop(1, 'rgba(200,0,0,0)');
+  ctx.fillStyle = gR; ctx.fillRect(canvas.width - 60, 0, 60, canvas.height);
+
+  titleTime++;
+}
+
 // Main loop
 function update() {
   if (gameOver) { updateParticles(); return; }
@@ -834,7 +920,14 @@ function draw() {
   drawHUD();
 }
 
-function loop() { update(); draw(); requestAnimationFrame(loop); }
+function loop() {
+  if (titleScreen) {
+    drawTitleScreen();
+    requestAnimationFrame(loop);
+    return;
+  }
+  update(); draw(); requestAnimationFrame(loop);
+}
 
 resizeCanvas();
 bob.worldX = canvas.width * 0.35;
