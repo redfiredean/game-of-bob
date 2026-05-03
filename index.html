@@ -149,7 +149,8 @@ function playRespawn() {
 
 // Background music
 let musicOn = false;
-let musicScheduled = false;
+let musicManuallyStopped = false; // true only when user explicitly pressed the button
+let musicStarted = false;         // have we ever kicked off the audio loop?
 const MELODY = [
   [220,0.15],[246.94,0.15],[261.63,0.15],[293.66,0.15],
   [329.63,0.2],[293.66,0.15],[261.63,0.15],[246.94,0.15],
@@ -191,7 +192,18 @@ function scheduleMusic(startTime) {
 function startMusic() {
   if (musicOn || audioCtx.state === 'suspended') return;
   musicOn = true;
+  musicStarted = true;
   scheduleMusic(audioCtx.currentTime + 0.1);
+}
+
+// Called on every tap to auto-start music unless user explicitly stopped it
+function autoStartMusic() {
+  if (musicManuallyStopped || musicStarted) return;
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().then(startMusic);
+  } else {
+    startMusic();
+  }
 }
 
 function stopMusic() { musicOn = false; }
@@ -711,16 +723,25 @@ function distToSegment(px, py, x1, y1, x2, y2) {
 
 function onDown(e) {
   e.preventDefault();
-  if (audioCtx.state === 'suspended') audioCtx.resume().then(startMusic);
-  else startMusic();
   const { x, y } = getPos(e);
-  // Music toggle button (always visible, bottom-left)
+
+  // Music toggle button (always visible, bottom-left) — check first
   const mBtnX = 16, mBtnY = canvas.height - 70, mBtnW = 90, mBtnH = 30;
   if (x >= mBtnX && x <= mBtnX + mBtnW && y >= mBtnY && y <= mBtnY + mBtnH) {
-    if (musicOn) { stopMusic(); }
-    else { audioCtx.resume().then(startMusic); }
+    if (musicOn) {
+      stopMusic();
+      musicManuallyStopped = true;
+    } else {
+      musicManuallyStopped = false;
+      musicStarted = false; // allow startMusic to run again
+      if (audioCtx.state === 'suspended') audioCtx.resume().then(startMusic);
+      else startMusic();
+    }
     return;
   }
+
+  // Auto-start music on first non-button tap
+  autoStartMusic();
 
   if (titleScreen) {
     if (showLevelsScreen) { showLevelsScreen = false; return; }
