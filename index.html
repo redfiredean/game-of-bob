@@ -826,16 +826,11 @@ function drawHUD() {
   ctx.textAlign = 'left'; ctx.fillText('drag Bob · click nose', 35, canvas.height - 40);
   ctx.textAlign = 'right'; ctx.fillText('avoid spikes!', canvas.width - 35, canvas.height - 40);
 
-  // Wall speed indicator
-  const sf = getWallSpeedFraction();
-  if (sf > 0.01) {
-    const spd = getWallSpeed().toFixed(1);
-    const r = Math.round(150 + sf * 105), g = Math.round(150 - sf * 150);
-    ctx.textAlign = 'left';
-    ctx.fillStyle = `rgba(${r},${g},30,0.85)`;
-    ctx.font = 'bold 13px monospace';
-    ctx.fillText(`wall ${spd}x`, 35, 90);
-  }
+  // Distance into level
+  const levelPct = Math.max(0, Math.min(1, (bob.worldX - levelStartWorldX) / LEVEL_LENGTH));
+  ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font = '12px monospace';
+  ctx.fillText(`${Math.round(levelPct * 100)}%`, 35, 90);
 
   if (squeakTimer > 0) {
     const sx = getScreenX();
@@ -1114,11 +1109,11 @@ function update() {
   bob.wobble += bob.wobbleSpeed;
 
   updateCamera();
-  // Wall advances forward; also tracks Bob so it never falls too far behind
-  deathWallWorldX += getWallSpeed();
-  const maxBehind = canvas.width * 0.72;
-  if (bob.worldX - deathWallWorldX > maxBehind)
-    deathWallWorldX = bob.worldX - maxBehind;
+  // Wall tracks Bob's furthest-forward position at a fixed offset.
+  // When Bob moves forward the wall advances with him.
+  // When Bob moves backward the wall stays — he just gets closer to it.
+  const wallTrail = canvas.width * 0.45;
+  deathWallWorldX = Math.max(deathWallWorldX, bob.worldX - wallTrail);
   if (bob.worldX < deathWallWorldX + 38) { killBob(); return; }
   // Global 5-minute countdown
   if (totalTimer > 0) { totalTimer--; }
