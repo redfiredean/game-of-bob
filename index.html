@@ -147,63 +147,78 @@ function playRespawn() {
   });
 }
 
-// Background music
+// Background music — single persistent oscillator pair, no per-loop node creation
 let musicOn = false;
-let musicManuallyStopped = false; // true only when user explicitly pressed the button
-let musicStarted = false;         // have we ever kicked off the audio loop?
-const MELODY = [
-  [220,0.15],[246.94,0.15],[261.63,0.15],[293.66,0.15],
-  [329.63,0.2],[293.66,0.15],[261.63,0.15],[246.94,0.15],
-  [220,0.2],[0,0.1],[196,0.15],[220,0.15],
-  [246.94,0.2],[220,0.15],[196,0.15],[174.61,0.3]
-];
+let musicManuallyStopped = false;
+let musicStarted = false;
+let musicMaster = null;   // GainNode (master volume, set to 0 when off)
+let musicDrone = null;    // persistent drone oscillator
+let musicMelody = null;   // persistent melody oscillator
 
-function scheduleMusic(startTime) {
-  if (!musicOn) return;
-  let t = startTime;
-  const masterGain = audioCtx.createGain();
-  masterGain.gain.value = 0.06;
-  masterGain.connect(audioCtx.destination);
-  for (const [freq, dur] of MELODY) {
-    if (freq === 0) { t += dur; continue; }
-    const osc = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    osc.type = 'square'; osc.frequency.value = freq;
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(1, t + 0.01);
-    g.gain.linearRampToValueAtTime(0, t + dur * 0.85);
-    osc.connect(g); g.connect(masterGain);
-    osc.start(t); osc.stop(t + dur);
-    t += dur;
+const MELODY_NOTES = [220,246.94,261.63,293.66,329.63,293.66,261.63,246.94,
+                      220,196,196,220,246.94,220,196,174.61];
+const NOTE_DUR = 0.18; // seconds per note
+let melodyStep = 0;
+let melodyNextTime = 0;
+
+function tickMelody() {
+  if (!musicOn || !musicMelody) return;
+  const now = audioCtx.currentTime;
+  // Schedule a few notes ahead
+  while (melodyNextTime < now + 0.5) {
+    const freq = MELODY_NOTES[melodyStep % MELODY_NOTES.length];
+    musicMelody.frequency.setValueAtTime(freq, melodyNextTime);
+    // Volume envelope via master: slight accent on each note
+    musicMaster.gain.setValueAtTime(0.055, melodyNextTime);
+    musicMaster.gain.linearRampToValueAtTime(0.04, melodyNextTime + NOTE_DUR * 0.8);
+    melodyNextTime += NOTE_DUR;
+    melodyStep++;
   }
-  // Bass drone
-  const drone = audioCtx.createOscillator();
-  const dg = audioCtx.createGain();
-  drone.type = 'sawtooth'; drone.frequency.value = 55;
-  dg.gain.setValueAtTime(0.035, startTime);
-  dg.gain.linearRampToValueAtTime(0, t - 0.05);
-  drone.connect(dg); dg.connect(audioCtx.destination);
-  drone.start(startTime); drone.stop(t);
-  // Schedule next loop
-  const totalDur = t - startTime;
-  setTimeout(() => scheduleMusic(audioCtx.currentTime + 0.05), (totalDur - 0.2) * 1000);
+  if (musicOn) setTimeout(tickMelody, 150);
 }
 
 function startMusic() {
   if (musicOn || audioCtx.state === 'suspended') return;
   musicOn = true;
   musicStarted = true;
-  scheduleMusic(audioCtx.currentTime + 0.1);
+
+  musicMaster = audioCtx.createGain();
+  musicMaster.gain.value = 0.05;
+  musicMaster.connect(audioCtx.destination);
+
+  // Melody oscillator (square wave)
+  musicMelody = audioCtx.createOscillator();
+  musicMelody.type = 'square';
+  musicMelody.frequency.value = 220;
+  musicMelody.connect(musicMaster);
+  musicMelody.start();
+
+  // Drone (sawtooth, low gain)
+  const droneGain = audioCtx.createGain();
+  droneGain.gain.value = 0.025;
+  musicDrone = audioCtx.createOscillator();
+  musicDrone.type = 'sawtooth';
+  musicDrone.frequency.value = 55;
+  musicDrone.connect(droneGain);
+  droneGain.connect(audioCtx.destination);
+  musicDrone.start();
+
+  melodyStep = 0;
+  melodyNextTime = audioCtx.currentTime + 0.05;
+  tickMelody();
 }
 
-// Called on every tap to auto-start music unless user explicitly stopped it
+function stopMusic() {
+  musicOn = false;
+  try { musicMelody && musicMelody.stop(); } catch(e) {}
+  try { musicDrone  && musicDrone.stop();  } catch(e) {}
+  musicMelody = null; musicDrone = null; musicMaster = null;
+}
+
 function autoStartMusic() {
   if (musicManuallyStopped || musicStarted) return;
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume().then(startMusic);
-  } else {
-    startMusic();
-  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().then(startMusic);
+  else startMusic();
 }
 
 function stopMusic() { musicOn = false; }
@@ -583,8 +598,10 @@ function checkSpikeCollision() {
 
 // Particles
 const particles = [];
+const MAX_PARTICLES = 80;
 function spawnParticles(x, y, color, count) {
   for (let i = 0; i < count; i++) {
+    if (particles.length >= MAX_PARTICLES) break;
     const angle = Math.random() * Math.PI * 2, speed = 1 + Math.random() * 4;
     particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
       life: 1, decay: 0.01 + Math.random() * 0.02, size: 2 + Math.random() * 5, color });
@@ -949,31 +966,22 @@ function drawLevelPortal() {
   if (sx < -80 || sx > canvas.width + 80) return;
 
   const pulse = 0.7 + 0.3 * Math.sin(gameTime * 0.06);
-  // Wide glow
+  // Wide soft glow (no shadowBlur — use gradient instead)
   const grad = ctx.createLinearGradient(sx - 80, 0, sx + 80, 0);
-  grad.addColorStop(0, 'rgba(255,255,255,0)');
-  grad.addColorStop(0.5, `rgba(220,240,255,${0.25 * pulse})`);
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  grad.addColorStop(0,   'rgba(255,255,255,0)');
+  grad.addColorStop(0.5, `rgba(220,240,255,${0.18 * pulse})`);
+  grad.addColorStop(1,   'rgba(255,255,255,0)');
   ctx.fillStyle = grad;
   ctx.fillRect(sx - 80, 0, 160, canvas.height);
-  // Bright beam
-  ctx.fillStyle = `rgba(255,255,255,${0.85 * pulse})`;
-  ctx.fillRect(sx - 5, 0, 10, canvas.height);
-  // Particles around beam
-  if (Math.random() < 0.4) {
-    spawnParticles(sx + (Math.random() - 0.5) * 10, Math.random() * canvas.height, '#fff', 1);
-  }
-  // Label
+  // Bright center beam
+  ctx.fillStyle = `rgba(255,255,255,${0.9 * pulse})`;
+  ctx.fillRect(sx - 4, 0, 8, canvas.height);
+  // Label (no shadowBlur)
   ctx.textAlign = 'center';
-  ctx.shadowBlur = 12; ctx.shadowColor = '#ffffff';
   ctx.fillStyle = `rgba(255,255,255,${pulse})`;
   ctx.font = `bold ${Math.min(18, canvas.width * 0.026)}px monospace`;
-  if (currentLevel < 30) {
-    ctx.fillText(`LEVEL ${currentLevel + 1} →`, sx, canvas.height / 2 - 14);
-  } else {
-    ctx.fillText('★ FINISH ★', sx, canvas.height / 2 - 14);
-  }
-  ctx.shadowBlur = 0;
+  const label = currentLevel < 30 ? `LEVEL ${currentLevel + 1} →` : '★ FINISH ★';
+  ctx.fillText(label, sx, canvas.height / 2 - 14);
 }
 
 function completeLevel() {
@@ -1015,22 +1023,18 @@ function drawTitleScreen() {
 
   // Title "GAME OF"
   ctx.textAlign = 'center';
-  ctx.shadowBlur = 25; ctx.shadowColor = '#4a7ab5';
   ctx.fillStyle = 'rgba(200,220,255,0.95)';
   ctx.font = `bold ${Math.min(64, canvas.width * 0.09)}px monospace`;
   ctx.fillText('GAME OF', cx, cy - canvas.height * 0.28);
-  ctx.shadowBlur = 0;
 
   // Title "BOB"
   const bobPulse = 1 + 0.04 * Math.sin(titleTime * 0.04);
   ctx.save();
   ctx.translate(cx, cy - canvas.height * 0.16);
   ctx.scale(bobPulse, bobPulse);
-  ctx.shadowBlur = 40; ctx.shadowColor = '#ffd700';
   ctx.fillStyle = '#ffd700';
   ctx.font = `bold ${Math.min(100, canvas.width * 0.14)}px monospace`;
   ctx.fillText('BOB', 0, 0);
-  ctx.shadowBlur = 0;
   ctx.restore();
 
   // Animated Bob character — positioned for title
