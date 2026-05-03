@@ -139,9 +139,8 @@ let musicManuallyStopped = false;
 let musicStarted = false;
 let musicInited = false;
 let musicMaster = null;  // master GainNode — fade this to mute/unmute
-let noteGain   = null;   // per-note envelope for melody articulation
+let noteGain    = null;  // per-note envelope for melody articulation
 let musicMelody = null;
-let musicDrone  = null;
 
 const MELODY_NOTES = [220,246.94,261.63,293.66,329.63,293.66,261.63,246.94,
                       220,196,196,220,246.94,220,196,174.61];
@@ -166,16 +165,6 @@ function initMusicNodes() {
   musicMelody.frequency.value = 220;
   musicMelody.connect(noteGain);
   musicMelody.start();
-
-  // Drone: sawtooth → attenuator → master
-  const droneAtt = audioCtx.createGain();
-  droneAtt.gain.value = 0.35;
-  droneAtt.connect(musicMaster);
-  musicDrone = audioCtx.createOscillator();
-  musicDrone.type = 'sawtooth';
-  musicDrone.frequency.value = 55;
-  musicDrone.connect(droneAtt);
-  musicDrone.start();
 }
 
 function tickMelody() {
