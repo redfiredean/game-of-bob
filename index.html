@@ -714,6 +714,14 @@ function onDown(e) {
   if (audioCtx.state === 'suspended') audioCtx.resume().then(startMusic);
   else startMusic();
   const { x, y } = getPos(e);
+  // Music toggle button (always visible, bottom-left)
+  const mBtnX = 16, mBtnY = canvas.height - 70, mBtnW = 90, mBtnH = 30;
+  if (x >= mBtnX && x <= mBtnX + mBtnW && y >= mBtnY && y <= mBtnY + mBtnH) {
+    if (musicOn) { stopMusic(); }
+    else { audioCtx.resume().then(startMusic); }
+    return;
+  }
+
   if (titleScreen) {
     if (showLevelsScreen) { showLevelsScreen = false; return; }
     // Check "Levels" button on title (drawn at cx, cy + height*0.54)
@@ -825,6 +833,17 @@ function drawHUD() {
   ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = '13px monospace';
   ctx.textAlign = 'left'; ctx.fillText('drag Bob · click nose', 35, canvas.height - 40);
   ctx.textAlign = 'right'; ctx.fillText('avoid spikes!', canvas.width - 35, canvas.height - 40);
+
+  // Music toggle button — bottom left
+  const btnLabel = musicOn ? '🔊 music' : '🔇 music';
+  const btnW = 90, btnH = 30, btnX = 16, btnY = canvas.height - 70;
+  ctx.fillStyle = 'rgba(255,255,255,0.07)';
+  roundRect(btnX, btnY, btnW, btnH, 8); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
+  roundRect(btnX, btnY, btnW, btnH, 8); ctx.stroke();
+  ctx.fillStyle = musicOn ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)';
+  ctx.font = '13px monospace'; ctx.textAlign = 'center';
+  ctx.fillText(btnLabel, btnX + btnW / 2, btnY + btnH / 2 + 5);
 
   // Distance into level
   const levelPct = Math.max(0, Math.min(1, (bob.worldX - levelStartWorldX) / LEVEL_LENGTH));
@@ -1040,6 +1059,17 @@ function drawTitleScreen() {
   const gR = ctx.createLinearGradient(canvas.width, 0, canvas.width - 60, 0);
   gR.addColorStop(0, `rgba(200,0,0,${edgeAlpha})`); gR.addColorStop(1, 'rgba(200,0,0,0)');
   ctx.fillStyle = gR; ctx.fillRect(canvas.width - 60, 0, 60, canvas.height);
+
+  // Music toggle (bottom left, same position as in-game)
+  const mBtnW = 90, mBtnH = 30, mBtnX = 16, mBtnY = canvas.height - 70;
+  const mLabel = musicOn ? '🔊 music' : '🔇 music';
+  ctx.fillStyle = 'rgba(255,255,255,0.07)';
+  roundRect(mBtnX, mBtnY, mBtnW, mBtnH, 8); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
+  roundRect(mBtnX, mBtnY, mBtnW, mBtnH, 8); ctx.stroke();
+  ctx.fillStyle = musicOn ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)';
+  ctx.font = '13px monospace'; ctx.textAlign = 'center';
+  ctx.fillText(mLabel, mBtnX + mBtnW / 2, mBtnY + mBtnH / 2 + 5);
 
   // Levels screen overlay
   if (showLevelsScreen) drawLevelsScreen();
