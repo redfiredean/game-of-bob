@@ -25,9 +25,9 @@ let deathWallWorldX = 0;
 let deathWallSpikes = [];
 
 function getWallSpeed() {
-  // Increases by 0.05 every second, caps at 13 (10× base)
+  const levelBase = 1.3 + (currentLevel - 1) * 0.38;
   const seconds = Math.floor(gameTime / 60);
-  return 1.3 + Math.min(11.7, seconds * 0.05);
+  return Math.min(13, levelBase + seconds * 0.03);
 }
 
 function getWallSpeedFraction() {
@@ -42,8 +42,7 @@ function createDeathWallSpikes() {
 
 function getWallSpikeH(phase) {
   const pulse = Math.max(0, Math.sin(gameTime * 0.022 + phase));
-  const difficulty = Math.min(1, getDistanceM() / 300);
-  return 20 + (8 + difficulty * 35) * pulse;
+  return 20 + (8 + getDiff() * 35) * pulse;
 }
 
 function drawDeathWall() {
@@ -147,6 +146,55 @@ function playRespawn() {
     }, delay);
   });
 }
+
+// Background music
+let musicOn = false;
+let musicScheduled = false;
+const MELODY = [
+  [220,0.15],[246.94,0.15],[261.63,0.15],[293.66,0.15],
+  [329.63,0.2],[293.66,0.15],[261.63,0.15],[246.94,0.15],
+  [220,0.2],[0,0.1],[196,0.15],[220,0.15],
+  [246.94,0.2],[220,0.15],[196,0.15],[174.61,0.3]
+];
+
+function scheduleMusic(startTime) {
+  if (!musicOn) return;
+  let t = startTime;
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.06;
+  masterGain.connect(audioCtx.destination);
+  for (const [freq, dur] of MELODY) {
+    if (freq === 0) { t += dur; continue; }
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'square'; osc.frequency.value = freq;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(1, t + 0.01);
+    g.gain.linearRampToValueAtTime(0, t + dur * 0.85);
+    osc.connect(g); g.connect(masterGain);
+    osc.start(t); osc.stop(t + dur);
+    t += dur;
+  }
+  // Bass drone
+  const drone = audioCtx.createOscillator();
+  const dg = audioCtx.createGain();
+  drone.type = 'sawtooth'; drone.frequency.value = 55;
+  dg.gain.setValueAtTime(0.035, startTime);
+  dg.gain.linearRampToValueAtTime(0, t - 0.05);
+  drone.connect(dg); dg.connect(audioCtx.destination);
+  drone.start(startTime); drone.stop(t);
+  // Schedule next loop
+  const totalDur = t - startTime;
+  setTimeout(() => scheduleMusic(audioCtx.currentTime + 0.05), (totalDur - 0.2) * 1000);
+}
+
+function startMusic() {
+  if (musicOn || audioCtx.state === 'suspended') return;
+  musicOn = true;
+  scheduleMusic(audioCtx.currentTime + 0.1);
+}
+
+function stopMusic() { musicOn = false; }
 
 // Bob the rag doll
 const bob = {
@@ -302,8 +350,7 @@ function createSpikes() {
 
 function getSpikeH(s) {
   const pulse = Math.max(0, Math.sin(gameTime * 0.022 + s.phase));
-  const difficulty = Math.min(1, getDistanceM() / 300); // ramps over 300m
-  return s.baseH + (8 + difficulty * 35) * pulse;
+  return s.baseH + (8 + getDiff() * 35) * pulse;
 }
 
 function drawSpikes() {
@@ -326,33 +373,34 @@ function drawSpikes() {
   }
 }
 
-// World obstacles — spike pillar pairs in world coordinates
+// World obstacles — generated per level
 const obstacles = [];
-let nextObstacleWorldX = 700;
 
-function getDiff(worldX) {
-  return Math.min(1, worldX / 12000); // full difficulty at 600m
-}
+function getDiff() { return getLevelDiff(currentLevel); }
 
-function generateObstacles() {
-  while (nextObstacleWorldX < cameraX + canvas.width * 1.6) {
-    const diff = getDiff(nextObstacleWorldX);
-    const spacing = Math.max(220, 560 - diff * 340);
-    const oscAmp = diff * canvas.height * 0.18;
-    const oscSpeed = 0.007 + diff * 0.018;
+function generateLevelObstacles() {
+  obstacles.length = 0;
+  const count = getLevelObstacleCount(currentLevel);
+  const diff = getDiff();
+  const safeStart = levelStartWorldX + 700;
+  const safeEnd = getLevelEndX() - 500;
+  const zoneW = safeEnd - safeStart;
+  const oscAmp = diff * canvas.height * 0.18;
+  const oscSpeed = 0.007 + diff * 0.018;
+
+  for (let i = 0; i < count; i++) {
+    const spacing = zoneW / count;
+    const worldX = safeStart + i * spacing + spacing * 0.2 + Math.random() * spacing * 0.6;
     const phase = Math.random() * Math.PI * 2;
-
-    // Unlock obstacle types progressively with distance
     const rand = Math.random();
     let type = 'pillar';
     if (diff > 0.15 && rand < 0.28) type = 'drop';
     else if (diff > 0.15 && rand < 0.5) type = 'rise';
     else if (diff > 0.35 && rand < 0.65) type = 'hbar';
 
-    let obs = { worldX: nextObstacleWorldX, type, oscAmp, oscSpeed, phase };
-
+    let obs = { worldX, type, oscAmp, oscSpeed, phase };
     if (type === 'pillar') {
-      const gapSize = Math.max(165, 420 - diff * 255);
+      const gapSize = Math.max(160, 420 - diff * 255);
       const margin = gapSize / 2 + 35;
       obs.gapCenter = margin + Math.random() * (canvas.height - margin * 2);
       obs.gapHalfSize = gapSize / 2;
@@ -360,7 +408,7 @@ function generateObstacles() {
     } else if (type === 'drop') {
       obs.depth = 90 + diff * 130 + Math.random() * 70;
       obs.width = 52;
-      obs.oscAmp = diff * canvas.height * 0.08; // gentler osc for depth changes
+      obs.oscAmp = diff * canvas.height * 0.08;
     } else if (type === 'rise') {
       obs.depth = 90 + diff * 130 + Math.random() * 70;
       obs.width = 52;
@@ -373,12 +421,9 @@ function generateObstacles() {
       obs.oscAmp = diff * canvas.height * 0.22;
       obs.oscSpeed = oscSpeed * 1.3;
     }
-
     obstacles.push(obs);
-    nextObstacleWorldX += spacing;
   }
-  while (obstacles.length && obstacles[0].worldX < cameraX - 300)
-    obstacles.shift();
+  obstacles.sort((a, b) => a.worldX - b.worldX);
 }
 
 function getGapCenter(obs) {
@@ -411,7 +456,7 @@ function drawObstacles() {
   for (const obs of obstacles) {
     const sx = obs.worldX - cameraX;
     if (sx < -100 || sx > canvas.width + 100) continue;
-    const diff = getDiff(obs.worldX);
+    const diff = getDiff();
     const shade = Math.round(30 + diff * 30);
     ctx.fillStyle = `rgb(${shade + 10},${shade / 2},${shade / 2})`;
 
@@ -558,6 +603,18 @@ let newRecord = false;
 // Title screen
 let titleScreen = true;
 let titleTime = 0;
+let showLevelsScreen = false;
+
+// Level system
+const LEVEL_LENGTH = 5200;
+let currentLevel = 1;
+let levelStartWorldX = 0;
+let totalTimer = 300 * 60; // 5 minutes in frames
+let levelsBeaten = JSON.parse(localStorage.getItem('bobLevelsBeaten') || '[]');
+
+function getLevelEndX() { return levelStartWorldX + LEVEL_LENGTH; }
+function getLevelObstacleCount(level) { return Math.min(Math.pow(2, level - 1), 32); }
+function getLevelDiff(level) { return Math.min(1, (level - 1) / 14); }
 
 function getDistanceM() { return Math.floor(Math.max(0, bob.worldX) / 20); }
 function getBestDistanceM() { return Math.floor(bestMaxWorldX / 20); }
@@ -594,12 +651,15 @@ function respawnBob() {
 
 function restartGame() {
   lives = 3; gameTime = 0; gameOver = false; newRecord = false;
-  cameraX = 0; nextObstacleWorldX = 700;
-  obstacles.length = 0;
+  totalTimer = 300 * 60;
+  currentLevel = 1;
+  cameraX = 0;
   bob.worldX = canvas.width * 0.35;
   bob.y = canvas.height / 2;
   bob.vx = 0; bob.vy = 0; bob.alive = true; bob.opacity = 1; bob.scale = 1;
+  levelStartWorldX = bob.worldX - 300;
   deathWallWorldX = bob.worldX - canvas.width * 0.45;
+  generateLevelObstacles();
 }
 
 // Nose squeak visual
@@ -651,14 +711,29 @@ function distToSegment(px, py, x1, y1, x2, y2) {
 
 function onDown(e) {
   e.preventDefault();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioCtx.state === 'suspended') audioCtx.resume().then(startMusic);
+  else startMusic();
+  const { x, y } = getPos(e);
   if (titleScreen) {
+    if (showLevelsScreen) { showLevelsScreen = false; return; }
+    // Check "Levels" button on title (drawn at cx, cy + height*0.54)
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+    const lvlBtnY = cy + canvas.height * 0.54;
+    if (Math.abs(x - cx) < 90 && Math.abs(y - lvlBtnY) < 18) {
+      showLevelsScreen = true; return;
+    }
     titleScreen = false;
     restartGame();
     return;
   }
-  if (gameOver) { restartGame(); return; }
-  const { x, y } = getPos(e);
+  if (gameOver) {
+    // Check back-to-menu button
+    const b = getMenuBtnBounds();
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+      titleScreen = true; showLevelsScreen = false; gameOver = false; return;
+    }
+    restartGame(); return;
+  }
   if (hitTestNose(x, y)) { playSqueak(); squeakTimer = 15; }
   if (hitTestBob(x, y)) {
     dragging = true;
@@ -711,27 +786,40 @@ function drawBackground() {
 
 // HUD
 function drawHUD() {
-  const dist = getDistanceM(), best = getBestDistanceM();
-  const diff = getDiff(bob.worldX);
+  const best = getBestDistanceM();
+  const diff = getDiff();
 
+  // Lives
   ctx.textAlign = 'left'; ctx.font = '20px monospace';
   ctx.fillStyle = 'rgba(255,80,80,0.9)';
   ctx.fillText('♥'.repeat(Math.max(0, lives)), 35, 65);
 
+  // Level (center top)
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = 'bold 22px monospace';
-  ctx.fillText(`${dist}m`, canvas.width / 2, 65);
+  ctx.fillText(`LEVEL ${currentLevel}`, canvas.width / 2, 52);
+
+  // Timer
+  const totalSec = Math.ceil(totalTimer / 60);
+  const tMin = Math.floor(totalSec / 60);
+  const tSec = totalSec % 60;
+  const timerStr = `${tMin}:${tSec.toString().padStart(2,'0')}`;
+  const timerAlpha = totalTimer < 1800 ? (0.5 + 0.5 * Math.abs(Math.sin(gameTime * 0.1))) : 0.85;
+  ctx.fillStyle = totalTimer < 1800 ? `rgba(255,80,80,${timerAlpha})` : `rgba(255,255,255,${timerAlpha})`;
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(timerStr, canvas.width / 2, 76);
+
   if (bestMaxWorldX > 0) {
-    ctx.fillStyle = 'rgba(255,215,0,0.65)'; ctx.font = '13px monospace';
-    ctx.fillText(`best ${best}m`, canvas.width / 2, 84);
+    ctx.fillStyle = 'rgba(255,215,0,0.55)'; ctx.font = '12px monospace';
+    ctx.fillText(`best ${best}m`, canvas.width / 2, 94);
   }
 
   if (diff > 0.05) {
-    const level = diff < 0.33 ? 'warming up' : diff < 0.66 ? 'getting spiky' : 'DANGER ZONE';
+    const label = diff < 0.33 ? 'warming up' : diff < 0.66 ? 'getting spiky' : 'DANGER ZONE';
     ctx.textAlign = 'right';
     ctx.fillStyle = `rgba(255,${Math.round(200 - diff * 180)},30,0.8)`;
     ctx.font = 'bold 13px monospace';
-    ctx.fillText(level, canvas.width - 35, 65);
+    ctx.fillText(label, canvas.width - 35, 65);
   }
 
   ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = '13px monospace';
@@ -796,8 +884,83 @@ function drawHUD() {
 
     // Play again prompt
     ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.font = '15px monospace';
-    ctx.fillText('click anywhere to play again', cx, cy - cardH / 2 + 185 + yOff);
+    ctx.fillText('tap anywhere to play again', cx, cy - cardH / 2 + 178 + yOff);
+
+    // Back to menu button
+    const btnY = cy - cardH / 2 + 205 + yOff;
+    const btnW = 180, btnH = 32;
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    roundRect(cx - btnW / 2, btnY - btnH / 2, btnW, btnH, 8); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
+    roundRect(cx - btnW / 2, btnY - btnH / 2, btnW, btnH, 8); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '14px monospace';
+    ctx.fillText('← back to menu', cx, btnY + 5);
   }
+}
+
+// Store game-over button bounds for hit testing
+function getMenuBtnBounds() {
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const cardH = newRecord ? 230 : 200;
+  const yOff = newRecord ? 28 : 10;
+  const btnY = cy - cardH / 2 + 205 + yOff;
+  const btnW = 180, btnH = 32;
+  return { x: cx - btnW / 2, y: btnY - btnH / 2, w: btnW, h: btnH };
+}
+
+function drawLevelPortal() {
+  const endX = getLevelEndX();
+  const sx = endX - cameraX;
+  if (sx < -80 || sx > canvas.width + 80) return;
+
+  const pulse = 0.7 + 0.3 * Math.sin(gameTime * 0.06);
+  // Wide glow
+  const grad = ctx.createLinearGradient(sx - 80, 0, sx + 80, 0);
+  grad.addColorStop(0, 'rgba(255,255,255,0)');
+  grad.addColorStop(0.5, `rgba(220,240,255,${0.25 * pulse})`);
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(sx - 80, 0, 160, canvas.height);
+  // Bright beam
+  ctx.fillStyle = `rgba(255,255,255,${0.85 * pulse})`;
+  ctx.fillRect(sx - 5, 0, 10, canvas.height);
+  // Particles around beam
+  if (Math.random() < 0.4) {
+    spawnParticles(sx + (Math.random() - 0.5) * 10, Math.random() * canvas.height, '#fff', 1);
+  }
+  // Label
+  ctx.textAlign = 'center';
+  ctx.shadowBlur = 12; ctx.shadowColor = '#ffffff';
+  ctx.fillStyle = `rgba(255,255,255,${pulse})`;
+  ctx.font = `bold ${Math.min(18, canvas.width * 0.026)}px monospace`;
+  if (currentLevel < 30) {
+    ctx.fillText(`LEVEL ${currentLevel + 1} →`, sx, canvas.height / 2 - 14);
+  } else {
+    ctx.fillText('★ FINISH ★', sx, canvas.height / 2 - 14);
+  }
+  ctx.shadowBlur = 0;
+}
+
+function completeLevel() {
+  if (!levelsBeaten.includes(currentLevel)) {
+    levelsBeaten.push(currentLevel);
+    localStorage.setItem('bobLevelsBeaten', JSON.stringify(levelsBeaten));
+  }
+  if (currentLevel >= 30) { gameOver = true; return; }
+  const nextStart = getLevelEndX();
+  currentLevel++;
+  levelStartWorldX = nextStart;
+  gameTime = 0;
+  deathWallWorldX = bob.worldX - canvas.width * 0.55;
+  generateLevelObstacles();
+  spawnParticles(getScreenX(), bob.y, '#ffffff', 30);
+  spawnParticles(getScreenX(), bob.y, '#ffd700', 20);
+  playRespawn();
+}
+
+function checkPortalCollision() {
+  if (!bob.alive) return;
+  if (bob.worldX >= getLevelEndX() - 60) completeLevel();
 }
 
 function drawTitleScreen() {
@@ -865,6 +1028,15 @@ function drawTitleScreen() {
     ctx.fillText('tap to play', cx, cy + canvas.height * 0.46);
   }
 
+  // "Levels" button
+  const lvlBtnY = cy + canvas.height * 0.54;
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  roundRect(cx - 80, lvlBtnY - 16, 160, 32, 8); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+  roundRect(cx - 80, lvlBtnY - 16, 160, 32, 8); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '14px monospace';
+  ctx.fillText('☰ levels', cx, lvlBtnY + 5);
+
   // Subtle red danger glow at edges
   const edgeAlpha = 0.08 + 0.04 * Math.sin(titleTime * 0.03);
   const gL = ctx.createLinearGradient(0, 0, 60, 0);
@@ -874,7 +1046,49 @@ function drawTitleScreen() {
   gR.addColorStop(0, `rgba(200,0,0,${edgeAlpha})`); gR.addColorStop(1, 'rgba(200,0,0,0)');
   ctx.fillStyle = gR; ctx.fillRect(canvas.width - 60, 0, 60, canvas.height);
 
+  // Levels screen overlay
+  if (showLevelsScreen) drawLevelsScreen();
+
   titleTime++;
+}
+
+function drawLevelsScreen() {
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  ctx.fillStyle = 'rgba(0,0,0,0.82)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd700'; ctx.font = 'bold 28px monospace';
+  ctx.fillText('LEVELS', cx, 60);
+  ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '13px monospace';
+  ctx.fillText('tap anywhere to go back', cx, 85);
+
+  const cols = 5, rows = 6, total = 30;
+  const cellW = Math.min(80, (canvas.width - 80) / cols);
+  const cellH = 50;
+  const gridW = cols * cellW, gridH = rows * cellH;
+  const startX = cx - gridW / 2, startY = 110;
+
+  for (let i = 0; i < total; i++) {
+    const col = i % cols, row = Math.floor(i / cols);
+    const x = startX + col * cellW, y = startY + row * cellH;
+    const beaten = levelsBeaten.includes(i + 1);
+    ctx.fillStyle = beaten ? 'rgba(80,200,120,0.2)' : 'rgba(255,255,255,0.06)';
+    roundRect(x + 4, y + 4, cellW - 8, cellH - 8, 6); ctx.fill();
+    ctx.strokeStyle = beaten ? 'rgba(80,200,120,0.6)' : 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    roundRect(x + 4, y + 4, cellW - 8, cellH - 8, 6); ctx.stroke();
+    ctx.fillStyle = beaten ? '#80c880' : 'rgba(255,255,255,0.6)';
+    ctx.font = `bold ${Math.min(15, cellW * 0.22)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`${i + 1}`, x + cellW / 2, y + cellH / 2 - 2);
+    if (beaten) {
+      ctx.fillStyle = '#ffd700'; ctx.font = '12px monospace';
+      ctx.fillText('★', x + cellW / 2, y + cellH / 2 + 14);
+    }
+    const obsCount = getLevelObstacleCount(i + 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '10px monospace';
+    ctx.fillText(`${obsCount} obs`, x + cellW / 2, y + cellH - 6);
+  }
 }
 
 // Main loop
@@ -900,9 +1114,16 @@ function update() {
   bob.wobble += bob.wobbleSpeed;
 
   updateCamera();
+  // Wall advances forward; also tracks Bob so it never falls too far behind
   deathWallWorldX += getWallSpeed();
+  const maxBehind = canvas.width * 0.72;
+  if (bob.worldX - deathWallWorldX > maxBehind)
+    deathWallWorldX = bob.worldX - maxBehind;
   if (bob.worldX < deathWallWorldX + 38) { killBob(); return; }
-  generateObstacles();
+  // Global 5-minute countdown
+  if (totalTimer > 0) { totalTimer--; }
+  else { killBob(); return; }
+  checkPortalCollision();
   checkSpikeCollision();
   checkObstacleCollision();
 
@@ -913,6 +1134,7 @@ function update() {
 function draw() {
   drawBackground();
   drawDeathWall();
+  drawLevelPortal();
   drawObstacles();
   drawSpikes();
   drawBob();
@@ -932,7 +1154,9 @@ function loop() {
 resizeCanvas();
 bob.worldX = canvas.width * 0.35;
 bob.y = canvas.height / 2;
+levelStartWorldX = bob.worldX - 300;
 deathWallWorldX = bob.worldX - canvas.width * 0.45;
+generateLevelObstacles();
 loop();
 </script>
 </body>
